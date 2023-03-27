@@ -1,0 +1,58 @@
+---
+title: "Project Workflow"
+author: "Hailey Gu"
+date: "2023-03-27"
+output: html_document
+---
+**Spatio-temporal analysis of crimes against women in Uttar Pradesh (India)**
+
+Project Workflow/plan 
+ 
+ 1. Import the data: Load the data from the provided .RDara file into the R environment. 
+      - This file contains the crime dataa and SpatialPolygonDataFrame objects 
+
+
+ 2. Clean and preprocess the data: Clean the data by addressing any missing values or outliers.
+      - Make sure all variables are in the correct format and remove any unnecessary variables. 
+ 
+ 
+ 3. Explore the data: Conduct exploratory data analysis (EDA) to understand the distribution of the data and identify any relationships between variables. 
+      - This may involve visualizing the data using histograms, scatterplots, and maps. 
+ 
+ 
+ 4. Analyze Rapes' incidence and Dowry deaths separately: 
+      - Using statistical methods such as generalized linear mixed models (GLMMs) or Bayesian hierarchical models, conduct a spatio-temporal analysis of Rapes' incidence and Dowry deaths separately. 
+      - Consider spatial and temporal autocorrelation when building the models.
+
+
+5. Visualize the results: 
+     - Create maps and other graphical representations of the results 
+     - Highlighting any trends or patterns that emerge. 
+* Use these visualizations to help interpret the results.
+
+
+6. Conduct integration of space-time type analysis: 
+     - Attempt an integration of space-time type analysis to investigate any potential interactions between the two crimes and how they relate to spatial and temporal factors.
+
+
+7. Interpret the results: Interpret the results of the analysis and draw conclusions about the spatio-temporal patterns of Rapes' incidence and Dowry deaths in Uttar Pradesh during the period 2001-2014.
+     - Consider any potential policy implications that emerge from the analysis.
+
+
+8. Communicate the results: 
+     - Present the results of the analysis in a clear and concise manner
+     - Using maps and other visualizations to help convey the findings. 
+* Consider preparing a written report or presenting the results to stakeholders.
+
+
+**Some of the methods may consider using for this project include:**
+
+* Generalized linear mixed models (GLMMs)
+
+* Bayesian hierarchical models 
+
+* Spatial statistics (e.g., spatial autocorrelation)
+
+* Temporal statistics (e.g., time series analysis)
+
+* Spatial visualization tools (e.g., ggplot2, leaflet)
