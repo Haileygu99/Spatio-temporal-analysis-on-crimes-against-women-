@@ -1,0 +1,812 @@
+---
+title: "Spatio-temporal analysis on crimes against women in Uttar Pradesh (India)"
+author: "02343497"
+date: "29/03/2023"
+bibliography: "02343497.bib"
+output:
+  html_document:
+    css: styles.css
+  pdf_document: default
+---
+  
+\pagenumbering{gobble} 
+\pagenumbering{arabic} 
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message=FALSE, warning=FALSE, fig.align = "center", class.source='klippy')
+```
+
+
+```{r klippy, echo=FALSE, include=TRUE}
+klippy::klippy(position = c('top', 'right'),color = 'darkred',
+               tooltip_message = 'Click to copy', tooltip_success = 'Done')
+```
+
+```{r eval=TRUE, echo=FALSE}
+# Load the libraries needed
+library(dplyr)        # A package for data manipulation
+library(sf)           # Simple feature for R
+library(spdep)        # Functions and tests for evaluating spatial patterns 
+library(tidyr)        # Tools to create tidy data
+library(INLA)         # Integrated Nested Laplace Approximation package
+library(ggplot2)      # A package for creating maps and graphs
+library(viridis)      # A package providing color palettes 
+library(patchwork)    # A package to compose plots
+
+# For tables in RMarkdown
+library(knitr)
+library(kableExtra)
+library(knitcitations)
+```
+
+
+### Abstract
+Violence against women, especially in the form of sexual abuse and assault, is a serious issue for public health and an infringement on women's human rights. In India, Uttar Pradesh has the highest incidence of all crimes against women; rape and dowry deaths are two of the most common crimes against women. The study aimed to gain insights into the spatial and temporal dynamics of these crimes to pinpoint effective countermeasures using Bayesian models. Data from the NCRB was used to analyze the prevalence of rape and dowry deaths across the 70 districts of Uttar Pradesh from 2001 to 2014. The hierarchical structure of the data and its spatial and temporal characteristics were taken into account using spatial and temporal modeling techniques. The results showed the highest incidence rate of the two crimes in the central and western parts of the state, with an overall decrease from 2001 to 2003, followed by an increase in the following years. The study emphasized the need for effective policy and intervention measures to reduce and prevent violence against women in Uttar Pradesh, focusing on the areas where the incidence of these crimes is highest.
+
+### Introduction
+Sexual assault and romantic partner violence are serious public health issues and human rights violations. According to the World Health Organization (WHO), around one in three (30%) women worldwide have experienced physical, sexual, or both forms of intimate relationship abuse or non-partner sexual violence at some point [@WHO2021]. The National Crime Records Bureau (NCRB) stated that Uttar Pradesh, the most populous state in India, has the highest rate of overall crimes against women in 2017. In 2002, the Protection from Domestic Violence Bill was established to “protect the rights of women who are victims of any kind of violence in the family and to provide for things that are related to or related to that violence [@par2002].” Rape incidences and dowry deaths are the two most common crimes against women in Uttar Pradesh. These crimes are distressing and harmful to women's physical and emotional health.  
+
+To learn more about the spatial and temporal dynamics of rape incidences and dowry deaths, we conducted an analysis of the prevalence of crimes against women in Uttar Pradesh. The analysis emphasizes the importance of considering spatial and temporal variables when investigating crimes against women, laying the groundwork for future studies on the underlying social, economic, and cultural factors that influence the prevalence of these crimes in Uttar Pradesh and other regions of India. The purpose of this analysis is to learn more about how these incidents have changed over time and across different districts in the state. The main goal of the analysis is to help guide policy and intervention efforts that aim to reduce and stop violence against women.
+
+
+### Methods
+#### Data
+The data was obtained from the NCRB, and spatial and temporal modeling techniques were used to analyze patterns and trends in the incidence of rape and dowry deaths in Uttar Pradesh. According to the NCRB, the data was collected by the State Crime Records Bureaux (SCRBx) from the District Crime Records Bureaux (DCRBx) and sent to the NCRB at the end of each calendar year [@crime2022]. The data contained information on rape incidences, dowry deaths, the female population between 15 and 49 years old during the period 2001–2014, the standardized incidence/mortality ratio for rapes and dowry deaths, and the IDs for the area, year, and area-time identifiers. The total female population between 15 and 49 years old in 2001 was 36,343,890, and in 2014 it was 50,563,541. Fig. 1 shows a map of Uttar Pradesh with the outline of the districts, and Table 1 in the supplementary material shows the ID for the districts to help identify areas on the map. Figure 2 displays the trend for the crude rates over the years for Uttar Pradesh, which dropped sharply from 2001 to 2004 but rose in the end for both rape incidences and dowry deaths.
+
+
+```{r eval=TRUE, echo=FALSE}
+# Import the Rdata file with the data and call the data.frame object as *data*. 
+load("~/Desktop/02343497/DS1_CrimeUttarPradesh/CrimeUttarPradesh.RData")
+```
+
+```{r eval=TRUE, echo=FALSE, message=FALSE}
+carto_up_sf <- st_as_sf(carto_up)
+```
+
+```{r echo=FALSE, eval=TRUE, fig.width=5.5, fig.height=4, fig.cap="Fig.1: Map of Uttar Pradesh with the districts"}
+india = ggplot() + 
+  geom_sf(data = carto_up_sf, color = "blue", fill = "white") +
+  geom_sf_text(data = carto_up_sf, aes(label = ID_area), color = "black", size = 3) +
+  coord_sf() +
+  theme_bw() +
+  theme(axis.title = element_text(size = 14),
+        axis.text = element_text(size = 12))
+
+```
+
+
+
+```{r eval=TRUE, echo=FALSE, message=FALSE, results = 'hide', fig.cap="Table 1: Area identifier"}
+kable(carto_up_sf %>%
+        group_by(ID_area) %>%
+         summarise(state=state, dist = dist), booktabs = T, caption = "Area identifier") %>%
+  kable_styling(bootstrap_options = "striped", full_width = F, position = "center")
+```
+
+```{r eval=TRUE, echo=FALSE, message=FALSE}
+# Create an empty data frame to store the results
+crude_rates <- data.frame(year = numeric(), crude_rate_rape = numeric(), crude_rate_dowry = numeric())
+
+# Loop over each year and calculate the crude rate of rapes and dowry deaths
+for (y in 2001:2014) {
+  # Subset the data for the current year
+  data_year <- subset(data, year == y)
+  
+  # Calculate crude rate of rapes and dowry deaths per 1000 female population
+  crude_rate_rape <- sum(data_year$rape) / sum(data_year$pop) * 1000
+  crude_rate_dowry <- sum(data_year$dowry) / sum(data_year$pop) * 1000
+  
+  # Add the results to the data frame
+  crude_rates <- rbind(crude_rates, data.frame(year = y, crude_rate_rape = crude_rate_rape, crude_rate_dowry = crude_rate_dowry))
+}
+```
+
+
+```{r eval=TRUE, echo=FALSE, message=FALSE, fig.width=5.5, fig.height=4, fig.cap="Fig. 2: Evolution of Crude Rates of Rapes and Dowry Deaths over the Years"}
+# Plot the evolution of crude rates of rapes and dowry deaths over the years
+plot1 = ggplot(data = crude_rates, aes(x = year)) +
+  geom_line(aes(y = crude_rate_rape, color = "Rapes")) +
+  geom_line(aes(y = crude_rate_dowry, color = "Dowry Deaths")) +
+  labs(title = "Evolution of Crude Rates",
+       x = "Year",
+       y = "Crude Rate per 1000 Female Population",
+       color = "Type of Violence") +
+  scale_color_manual(values = c("Rapes" = "red", "Dowry Deaths" = "blue")) +
+  theme_minimal()
+```
+
+
+```{r eval=TRUE, echo=FALSE, fig.width=10, fig.height=4}
+# Combine the two plots 
+combined_plot1 <- india | plot1
+
+# Add the title under the figure using plot_annotation()
+combined_plot1 + plot_annotation(
+  caption = "Fig. 1: Map of the average rape incidences and dowry deaths SMRs(2001-2014) in Uttar Pradesh & Fig. 2: Evolution of Crude Rates over the Years",
+  theme = theme(plot.caption = element_text(hjust = 0.5))
+)
+```
+
+Table 2 shows the descriptive statistics for the rape incidence and dowry death cases in Uttar Pradesh, India, over the years. From 2012 to 2014, the mean for rape incidence increased dramatically. The dowry death incidences rose from 2004 to 2009, then stabilized until 2014. Both tables showed decreasing trends from 2001 to 2003 and 2005. 
+
+
+```{r eval=TRUE, echo=FALSE, message=FALSE}
+library(tidyverse)
+
+# Calculate the statistics for each year and create a data frame
+yearly_stats_rape <- data %>%
+  group_by(year) %>%
+  summarize(min_value = min(rape),
+            min_district = dist[which.min(rape)],
+            max_value = max(rape),
+            max_district = dist[which.max(rape)],
+            mean_value = mean(rape),
+            sd_value = sd(rape),
+            q1_value = quantile(rape, probs = 0.25),
+            q3_value = quantile(rape, probs = 0.75)) %>%
+  ungroup() %>%
+  mutate(min_combined = paste0(min_value, " (", min_district, ")"),
+         max_combined = paste0(max_value, " (", max_district, ")"),
+         mean_rounded = round(mean_value, 2),
+         sd_rounded = round(sd_value, 2))
+
+```
+
+
+```{r eval=TRUE, echo=FALSE, message=FALSE,results='hide',fig.cap="Table 2: Descriptive statistics: min, Q1, mean, sd, Q3 and max for rapes' incidence in the districts of Uttar Pradesh by year"}
+kable(yearly_stats_rape %>%
+        group_by(year) %>%
+         summarise(Minimum = min_combined, Q1=q1_value, Mean= mean_rounded, sd = sd_rounded,Q3=q3_value, Maximum = max_combined), booktabs = T, caption = "Table 2: Rapes' incidence cases in Uttar Pradesh by year") %>%
+  kable_styling(bootstrap_options = "striped", full_width = F, position = "center")
+```
+
+
+
+```{r eval=TRUE, echo=FALSE, message=FALSE}
+library(tidyverse)
+
+# Calculate the statistics for each year and create a data frame
+yearly_stats_dowry <- data %>%
+  group_by(year) %>%
+  summarize(min_value = min(dowry),
+            min_district = dist[which.min(dowry)],
+            max_value = max(dowry),
+            max_district = dist[which.max(dowry)],
+            mean_value = mean(dowry),
+            sd_value = sd(dowry),
+            q1_value = quantile(dowry, probs = 0.25),
+            q3_value = quantile(dowry, probs = 0.75)) %>%
+  ungroup() %>%
+  mutate(min_combined = paste0(min_value, " (", min_district, ")"),
+         max_combined = paste0(max_value, " (", max_district, ")"),
+         mean_rounded = round(mean_value, 2),
+         sd_rounded = round(sd_value, 2))
+
+```
+
+```{r eval=TRUE, echo=FALSE, message=FALSE, results='hide', fig.cap="Table 3: Descriptive statistics: min, Q1, mean, sd, Q3 and max for dowry deaths in the districts of Uttar Pradesh by year"}
+kable(yearly_stats_dowry %>%
+        group_by(year) %>%
+         summarise(Minimum = min_combined, Q1=q1_value, Mean= mean_rounded, sd = sd_rounded,Q3=q3_value, Maximum = max_combined), booktabs = T, caption = "Table 3: Dowry death cases in Uttar Pradesh by year") %>%
+  kable_styling(bootstrap_options = "striped", full_width = F, position = "center")
+
+```
+
+```{r eval=TRUE, echo=FALSE, message=FALSE}
+library(tidyverse)
+
+# Calculate the statistics for each year and create a data frame
+yearly_stats <- data %>%
+  group_by(year) %>%
+  summarize(min_value_rape = min(rape),
+            min_district_rape = dist[which.min(rape)],
+            max_value_rape = max(rape),
+            max_district_rape = dist[which.max(rape)],
+            mean_value_rape = mean(rape),
+            sd_value_rape = sd(rape),
+            q1_value_rape = quantile(rape, probs = 0.25),
+            q3_value_rape = quantile(rape, probs = 0.75),
+            min_value_dowry = min(dowry),
+            min_district_dowry = dist[which.min(dowry)],
+            max_value_dowry = max(dowry),
+            max_district_dowry = dist[which.max(dowry)],
+            mean_value_dowry = mean(dowry),
+            sd_value_dowry = sd(dowry),
+            q1_value_dowry = quantile(dowry, probs = 0.25),
+            q3_value_dowry = quantile(dowry, probs = 0.75)) %>%
+  ungroup() %>%
+  
+  mutate(min_combined_rape = paste0(min_value_rape, " (", min_district_rape, ")"),
+         max_combined_rape = paste0(max_value_rape, " (", max_district_rape, ")"),
+         mean_rounded_rape = round(mean_value_rape, 2),
+         sd_rounded_rape = round(sd_value_rape, 2),
+         min_combined_dowry = paste0(min_value_dowry, " (", min_district_dowry, ")"),
+         max_combined_dowry = paste0(max_value_dowry, " (", max_district_dowry, ")"),
+         mean_rounded_dowry = round(mean_value_dowry, 2),
+         sd_rounded_dowry = round(sd_value_dowry, 2))
+```
+
+```{r eval=TRUE, echo=FALSE, message=FALSE, fig.cap="Table 2: Descriptive statistics: min, Q1, mean, sd, Q3 and max for rape incidence and dowry deaths in the districts of Uttar Pradesh by year"}
+kable(yearly_stats %>%
+        group_by(year) %>%
+         summarise(Minimum_R = min_combined_rape, Q1_R=q1_value_rape, Mean_R= mean_rounded_rape, sd_R = sd_rounded_rape,Q3_R=q3_value_rape, Maximum_R = max_combined_rape, Minimum_D = min_combined_dowry, Q1_D=q1_value_dowry, Mean_D= mean_rounded_dowry, sd_D = sd_rounded_dowry,Q3_D=q3_value_dowry, Maximum_D = max_combined_dowry), booktabs = T, caption = "Table 2: Descriptive statistics") %>%
+  kable_styling(bootstrap_options = "striped", full_width = T, position = "center", font_size = 10)
+```
+
+
+#### Spatial model 
+
+The hierarchical Poisson log-linear model was used to estimate the incidence rates of rape and dowry deaths separately while accounting for the hierarchical structure of the data and controlling for spatial and temporal dependencies in the data. Specifically, the model was used to estimate the relative risks of rape incidence and dowry deaths across the districts of Uttar Pradesh, taking into account the spatial correlation between neighboring districts. The BYM2 prior was employed to model the spatial random effects, which combines a conditional autoregressive (CAR) prior and an independent and identically distributed (iid) prior. This approach allowed for modeling both the spatially structured and unstructured random effects.The model is specified as:
+\[
+\begin{eqnarray}
+O_i &\sim & \text{Poisson}(\rho_i E_i)\\
+\eta_i &= & \log \rho_i = b_0 + b_i\\
+\boldsymbol{b} &= & \frac{1}{\sqrt{\tau_b}}(\sqrt{1-\phi}\boldsymbol{v}_{*} + \sqrt{\phi}\boldsymbol{u}_{*})\\
+\end{eqnarray}
+\]
+where $\boldsymbol{v}_{*}$ and $\boldsymbol{u}_{*}$ are standardised versions of $\boldsymbol{u}$ and $\boldsymbol{v}$. 
+$u_i$ is the spatially structured component defined by an intrinsic CAR prior:  $\boldsymbol{u}\sim ICAR(\boldsymbol{W}, \sigma^2_u)$, 
+$v_i$  the unstructured component defined with prior: $v_s \overset{iid}{\sim} \text{Normal}(0,\sigma^2_v)$. 
+
+
+#### Spatio-temporal analysis
+A spatio-temporal analysis using a separable space-time model with type 1 interaction was conducted to examine both the spatial and temporal patterns of the incidence of these types of violence. The incidence of rape and dowry may vary both spatially and temporally, understanding these patterns will allow us to identify areas and periods of high risk and target interventions effectively. A spatial-temporal analysis with a separable space-time model with type 1 interaction was used to identify areas and periods of high risk, as well as to test hypotheses about the factors that are driving the incidence. The model can be utilized to test whether there are spatial or temporal clusters of high incidence rates or whether certain socio-economic or demographic factors are associated with higher incidence rates.
+
+\[
+\begin{eqnarray}
+O_{it} &\sim & \text{Poisson}(\rho_{it} E_{it}) \\
+\log \rho_{it} &= & b_0 + b_i + \gamma_t + \psi_t + \delta_{it} \\
+\boldsymbol{b} &= & \frac{1}{\sqrt{\tau_b}}(\sqrt{1-\phi}\boldsymbol{v}_{*} + \sqrt{\phi}\boldsymbol{u}_{*})\\
+\gamma_t & \sim & \hbox{RW(1)}\\
+\psi_t & \sim & N(0,\sigma^2_{\psi})\\
+\delta_{it} & \sim & \hbox{Normal}(0, \sigma^2_{\delta})
+\end{eqnarray}
+\]
+
+#### WAIC
+WAIC was calculated for both the spatial and spatio-temporal models to compare their goodness of fit. It is used for model selection and comparison in Bayesian data analysis. The idea is to estimate the out-of-sample predictive accuracy of a given model using information from the posterior distribution. The spatio-temporal model yielded a better score, indicating that it provided a better explanation for the observed data. For both rape incidence and dowry deaths, the WAIC was about 10 times better for the spatio-temporal type 1 interaction model compared to the spatial model (WAIC for Rape: spatial-649, SpatTemp type1-6245; WAIC for dowry: spatial-659, SpatTemp type1-6335).
+
+
+
+### Results
+
+The average SMRs for rape incidence and dowry deaths cases over the period 2001 - 2014 were mapped (fig 3 and fig 4). According to the figures, the grid (78,27) area has the highest SMRs compared to most of the other areas. The SMRs were relatively low for the west regions for both rape incidences and dowry deaths.
+```{r eval=TRUE, echo=FALSE, results='hide'}
+carto_up_sf_nb = poly2nb(carto_up_sf, snap=1000, queen=TRUE)
+summary(carto_up_sf_nb)
+
+
+nb2INLA("carto_up_sf.graph", carto_up_sf_nb)
+carto_up_sf.adj=paste(getwd(), "/carto_up_sf.graph", sep ="")
+```
+
+```{r eval=TRUE, echo=FALSE, results='hide'}
+data_agg_rape = data %>% group_by (ID_area) %>%
+  summarize(rape_observed = sum(rape),
+            rape_expected = sum(e_rape), rape_SMR = mean(smr_rape)) %>% 
+  dplyr::rename(rape_obs = rape_observed, rape_exp = rape_expected)
+```
+
+```{r echo=FALSE, results='hide'}
+data_agg_rape$rape_SMRcat = cut(data_agg_rape$rape_SMR, 
+                      breaks=c(min(data_agg_rape$rape_SMR), 
+                               0.4, 0.6, 0.8, 1, 1.2, 1.4, 1.6, 
+                               max(data_agg_rape$rape_SMR)), include.lowest = T)
+
+map_SMR_rape = left_join(carto_up_sf, data_agg_rape, by = c("ID_area" = "ID_area"))
+```
+
+```{r mapSMR_rape, eval=TRUE, echo=FALSE, fig.cap="Fig: Map of the average rape SMRs over the period 2001-2014 in Uttar Pradesh"}
+p_rape = ggplot() + geom_sf(data = map_SMR_rape, col = NA) + aes(fill = rape_SMRcat) +
+  theme_bw() + scale_fill_viridis_d() + 
+  guides(fill=guide_legend(title="Fig. 3b: SMR for rape cases")+ theme(text = element_text(size=15), 
+                  axis.text.x = element_blank(), 
+                  axis.text.y = element_blank(), plot.title = element_text(size = 12, face = "bold"))) 
+```
+
+
+```{r eval=TRUE, echo=FALSE, results='hide'}
+data_agg_dowry = data %>% group_by (ID_area) %>%
+  summarize(dowry_observed = sum(dowry),
+            dowry_expected = sum(e_dowry), dowry_SMR = mean(smr_dowry)) %>% 
+  dplyr::rename(dowry_obs = dowry_observed, dowry_exp = dowry_expected)
+```
+
+
+```{r echo=FALSE, results='hide'}
+data_agg_dowry$dowry_SMRcat = cut(data_agg_dowry$dowry_SMR, 
+                      breaks=c(min(data_agg_dowry$dowry_SMR), 
+                               0.4, 0.6, 0.8, 1, 1.2, 1.4, 1.6, 
+                               max(data_agg_dowry$dowry_SMR)), include.lowest = T)
+
+map_SMR_dowry = left_join(carto_up_sf, data_agg_dowry, by = c("ID_area" = "ID_area"))
+```
+
+
+```{r mapSMR_dowry, eval=TRUE, echo=FALSE, fig.cap="Fig.: Map of the average dowry deaths SMRs over the period 2001-2014 in Uttar Pradesh"}
+p_dowry=ggplot() + geom_sf(data = map_SMR_dowry, col = NA) + aes(fill = dowry_SMRcat) +
+  theme_bw() + scale_fill_viridis_d() + 
+  guides(fill=guide_legend(title="Fig. 3b: SMR for dowry deaths cases")+ theme(text = element_text(size=15), 
+                  axis.text.x = element_blank(), 
+                  axis.text.y = element_blank(), plot.title = element_text(size = 12, face = "bold")) ) 
+```
+
+```{r mapSMR, echo=FALSE, fig.width=10, fig.height=4}
+# Combine the two plots (assuming p_rape and p_dowry are defined ggplot objects)
+combined_plot <- p_rape | p_dowry
+
+# Add the title under the figure using plot_annotation()
+combined_plot + plot_annotation(
+  caption = "Fig. 3: Map of the average rape incidences and dowry deaths SMRs over the period 2001-2014 in Uttar Pradesh",
+  theme = theme(plot.caption = element_text(hjust = 0.5))
+)
+```
+
+
+
+From the maps of the posterior mean of the residual relative risks and posterior probabilities, the posterior mean of the residual RRs map indicates that districts in the north and northeast have a relatively high risk of rape incidences, while the districts mainly in the east have a relatively low risk. For the dowry death cases, the posterior mean of the residual RRs map shows a relatively high risk for the north-central districts, while the east also has a relatively low risk in this case. The maps for the posterior probabilities for both rape incidence and dowry death cases suggest an association with some type of covariate that results a higher incidence of rape or dowry deaths. This indicates that the cases were not due to chance. However, we do not have enough information from the dataset on the covariates to specify which factor is driving the incidences. 
+
+```{r eval=TRUE, echo=FALSE}
+ID = seq(1,70)
+formula_BYM2 = rape_obs ~ f(ID, model="bym2", graph=carto_up_sf.adj,
+                            hyper=list(prec = list(
+        prior = "pc.prec",
+        param = c(0.5 / 0.31, 0.01)),
+        phi = list(
+        prior = "pc",
+        param = c(0.5, 2 / 3))))  
+
+sBYM.model_rape = inla(formula=formula_BYM2, family="poisson", data=data_agg_rape, E=E, control.compute=list(waic=TRUE))
+```
+
+```{r echo=FALSE}
+#Relative risks
+RR_sBYM_rape = c()
+
+for(i in 1:70){
+  RR_sBYM_rape[i] = inla.emarginal(function(x) exp(x), 
+        sBYM.model_rape$marginals.random$ID[[i]])
+}
+
+#Posterior probabilities
+RR_sBYM_marg_rape = sBYM.model_rape$marginals.random$ID[1:70]
+PP_sBYM_rape = lapply(RR_sBYM_marg_rape, function(x) {1-inla.pmarginal(0,x)})
+```
+
+```{r eval=TRUE, echo=FALSE, include=TRUE}
+resRR_PP_rape = data.frame(resRR=RR_sBYM_rape, 
+                       PP=unlist(PP_sBYM_rape),
+                      ID_area=data_agg_rape[,1])
+```
+
+```{r eval=TRUE, echo=FALSE, include=TRUE}
+resRR_PP_rape$resRRcat = cut(resRR_PP_rape$resRR, breaks=c(min(resRR_PP_rape$resRR), 
+                  0.4, 0.6, 0.8, 1, 1.2, 1.4, 1.6, 
+                  max(resRR_PP_rape$resRR)),include.lowest = T)
+```
+
+
+```{r eval=TRUE, echo=FALSE, include=TRUE}
+# breakpoints
+resRR_PP_rape$PPcat = cut(resRR_PP_rape$PP, c(0, 0.2, 0.8, 1.00), include.lowest = TRUE)
+```
+
+```{r echo=FALSE, include=TRUE}
+map_RR_PP_rape = left_join(carto_up_sf, resRR_PP_rape, by = c("ID_area" = "ID_area"))
+```
+
+```{r mapRRsp, eval=TRUE, echo=FALSE, include=TRUE, fig.width=10, fig.height=4, fig.cap="Fig. 4a: RR and PP Spatial model for rape incidence cases"}
+p1 = ggplot() + geom_sf(data = map_RR_PP_rape) + aes(fill = resRRcat) +
+  theme_bw() + scale_fill_brewer(palette = "PuOr") + 
+  guides(fill=guide_legend(title="RR")) + ggtitle("RR Spatial model for rape cases") + 
+  theme(text = element_text(size=15), 
+                  axis.text.x = element_blank(), 
+                  axis.text.y = element_blank(), plot.title = element_text(size = 12, face = "bold"))
+
+p2 = ggplot() + geom_sf(data = map_RR_PP_rape) + aes(fill = PPcat) +
+  theme_bw() +
+  scale_fill_viridis(
+    option = "plasma", name="PP",
+    discrete = T,
+    direction = -1,
+    guide = guide_legend(
+      title.position = 'top',
+      reverse = T
+    )) +  ggtitle("PP Spatial model for rape cases") + theme(text = element_text(size=15), 
+                  axis.text.x = element_blank(), 
+                  axis.text.y = element_blank(), plot.title = element_text(size = 12, face = "bold")) 
+
+p1|p2
+```
+
+```{r eval=TRUE, echo=FALSE}
+ID = seq(1,70)
+formula_BYM2 = dowry_obs ~ f(ID, model="bym2", graph="carto_up_sf.graph",
+        hyper=list(prec = list(
+        prior = "pc.prec",
+        param = c(0.5 / 0.31, 0.01)),
+        phi = list(
+        prior = "pc",
+        param = c(0.5, 2 / 3))))  
+
+sBYM.model_dowry = inla(formula=formula_BYM2, family="poisson", data=data_agg_dowry, E=E, control.compute=list(waic=TRUE))
+```
+
+```{r echo=FALSE}
+#Relative risks
+RR_sBYM_dowry = c()
+
+for(i in 1:70){
+  RR_sBYM_dowry[i] = inla.emarginal(function(x) exp(x), 
+        sBYM.model_dowry$marginals.random$ID[[i]])
+}
+
+#Posterior probabilities
+RR_sBYM_marg_dowry = sBYM.model_dowry$marginals.random$ID[1:70]
+PP_sBYM_dowry = lapply(RR_sBYM_marg_dowry, function(x) {1-inla.pmarginal(0,x)})
+```
+
+```{r eval=TRUE, echo=FALSE, include=TRUE}
+resRR_PP_dowry = data.frame(resRR=RR_sBYM_dowry, 
+                       PP=unlist(PP_sBYM_dowry),
+                      ID_area=data_agg_dowry[,1])
+```
+
+```{r eval=TRUE, echo=FALSE, include=TRUE}
+resRR_PP_dowry$resRRcat = cut(resRR_PP_dowry$resRR, breaks=c(min(resRR_PP_dowry$resRR), 
+                  0.4, 0.6, 0.8, 1, 1.2, 1.4, 1.6, 
+                  max(resRR_PP_dowry$resRR)),include.lowest = T)
+```
+
+```{r eval=TRUE, echo=FALSE, include=TRUE}
+# breakpoints
+resRR_PP_dowry$PPcat = cut(resRR_PP_dowry$PP, c(0, 0.2, 0.8, 1.00), include.lowest = TRUE)
+```
+
+```{r echo=FALSE, include=TRUE}
+map_RR_PP_dowry = left_join(carto_up_sf, resRR_PP_dowry, by = c("ID_area" = "ID_area"))
+```
+
+```{r mapRRsp_dowry, echo=FALSE, include=TRUE, fig.width=10, fig.height=4, fig.cap="Fig. 4b: RR and PP Spatial model for dowry death cases"}
+p1 = ggplot() + geom_sf(data = map_RR_PP_dowry) + aes(fill = resRRcat) +
+  theme_bw() + scale_fill_brewer(palette = "PuOr") + 
+  guides(fill=guide_legend(title="RR")) + ggtitle("RR Spatial model for dowry death cases") + 
+  theme(text = element_text(size=15), 
+                  axis.text.x = element_blank(), 
+                  axis.text.y = element_blank(), plot.title = element_text(size = 12, face = "bold"))
+
+p2 = ggplot() + geom_sf(data = map_RR_PP_dowry) + aes(fill = PPcat) +
+  theme_bw() +
+  scale_fill_viridis(
+    option = "plasma", name="PP",
+    discrete = T,
+    direction = -1,
+    guide = guide_legend(
+      title.position = 'top',
+      reverse = T
+    )) +  ggtitle("PP Spatial model for dowry death") + theme(text = element_text(size=15), 
+                  axis.text.x = element_blank(), 
+                  axis.text.y = element_blank(), plot.title = element_text(size = 12, face = "bold")) 
+
+p1|p2
+```
+
+The posterior summary of the hyperparameters for both rape incidence cases and dowry death cases both show that 38% of the spatial variability is explained by the spatially structured component, meaning there is some underlying spatial pattern in the data that can be accounted for by the model. This suggests that there are some spatial factors that are associated with the incidence of rape and dowry deaths in Uttar Pradesh.The spatially structured component of the model captures this underlying spatial pattern by modeling the spatial autocorrelation in the data. It assumes that observations that are closer together in space are more similar to each other than observations that are farther apart. However, the 38% of the spatial variability explained by the spatially structured component does not mean that spatial is the only important factor affecting the incidence of rape and dowry deaths. Other factors such demographic, socio-economic, or cultural factors, also influence the incidence of these types of violence.
+
+```{r echo=FALSE}
+knitr::include_graphics("~/Desktop/hyperpar.png")
+```
+
+
+```{r echo=FALSE, results='hide'}
+sBYM.model_rape$summary.hyperpar
+sBYM.model_dowry$summary.hyperpar
+```
+
+
+Figure 5 presents the overall spatio-temporal trend, a huge decrease in risk is noticed for both rape incidences and dowry death cases from 2001 to 2003. However, the spatio-temporal risk increases, with the increase for dowry death cases stabilizing around 2010. This trend could be due to the establishment of a law against domestic violence in 2002.
+
+```{r echo=FALSE}
+#Join the data with the shapefile so the order of the shapefile is maintained.  
+data_ST_rape = left_join(carto_up_sf, data, by="ID_area")
+
+#Rename the columns of Observed and Expected as we did before
+data_ST_rape = data_ST_rape  %>% dplyr::rename(rape_obs = rape, rape_exp = e_rape)
+
+#Create the ID for year (time)
+data_ST_rape$ID.time = data_ST_rape$year - 2000
+
+#Create the ID for space
+data_ST_rape$ID.space = rep(seq(1,70),each=14)
+```
+
+
+```{r echo=FALSE}
+data_ST_rape$ID.space.time = seq(1,dim(data_ST_rape)[1])
+
+formula_ST_intI_rape = rape_obs ~ f(ID.space, model="bym2", graph=carto_up_sf.adj,
+                            hyper=list(prec = list(
+                            prior = "pc.prec",
+                            param = c(0.5 / 0.31, 0.01)),
+                            phi = list(
+                            prior = "pc",
+                            param = c(0.5, 2 / 3)))) + 
+                      f(ID.time,model="rw1", hyper=list(prec = list(
+                            prior = "pc.prec",
+                            param = c(0.5 / 0.31, 0.01))))+
+                      f(ID.space.time,model="iid", hyper=list(prec = list(
+                            prior = "pc.prec",
+                            param = c(0.5 / 0.31, 0.01))))
+                    
+                            
+stIntI.BYM.model_rape = inla(formula=formula_ST_intI_rape, family="poisson", data=data_ST_rape, E=E,
+                        control.compute=list(dic=TRUE, waic=TRUE))
+```
+
+```{r echo=FALSE}
+#Spatial Relative risks
+RR_stIntI.BYM_rape = c()
+
+for(i in 1:70){
+  RR_stIntI.BYM_rape[i] = inla.emarginal(function(x) exp(x), 
+        stIntI.BYM.model_rape$marginals.random$ID.space[[i]])
+}
+
+#Posterior probabilities (for spatial RR)
+RR_stIntI.BYM_marg_rape = stIntI.BYM.model_rape$marginals.random$ID.space[1:70]
+PP_stIntI.BYM_rape = lapply(RR_stIntI.BYM_marg_rape, function(x) {1-inla.pmarginal(0,x)})
+
+#Temporal Relative risks and CI95
+RR_stIntI.RW_RR_rape = c()
+RR_stIntI.RW_lo_rape = c()
+RR_stIntI.RW_hi_rape = c()
+
+for(i in 1:14){
+  #Posterior mean
+  RR_stIntI.RW_RR_rape[i] = inla.emarginal(function(x) exp(x), 
+        stIntI.BYM.model_rape$marginals.random$ID.time[[i]])
+  #2.5% quantile 
+  RR_stIntI.RW_lo_rape[i] = inla.qmarginal(0.025,inla.tmarginal(function(x) exp(x), stIntI.BYM.model_rape$marginals.random$ID.time[[i]]))
+  #97.5% quantile 
+  RR_stIntI.RW_hi_rape[i] = inla.qmarginal(0.975, inla.tmarginal(function(x) exp(x), stIntI.BYM.model_rape$marginals.random$ID.time[[i]]))
+}
+
+RR_stIntI.RW_rape = data.frame(RR=RR_stIntI.RW_RR_rape,low=RR_stIntI.RW_lo_rape,high=RR_stIntI.RW_hi_rape)
+```
+
+
+```{r echo=FALSE,}
+Temp1 = ggplot(RR_stIntI.RW_rape, aes(seq(2001,2014), RR)) + geom_line() + ggtitle("ST model Int I for Rape Incidences") + geom_ribbon(aes(ymin=low,ymax=high), alpha=0.2) + labs(x="year")
+
+```
+
+```{r echo=FALSE}
+#Join the data with the shapefile so the order of the shapefile is maintained.  
+data_ST_dowry = left_join(carto_up_sf, data, by="ID_area")
+
+#Rename the columns of Observed and Expected as we did before
+data_ST_dowry = data_ST_dowry  %>% dplyr::rename(dowry_obs = dowry, dowry_exp = e_dowry)
+
+#Create the ID for year (time)
+data_ST_dowry$ID.time = data_ST_dowry$year - 2000
+
+#Create the ID for space
+data_ST_dowry$ID.space = rep(seq(1,70),each=14)
+```
+
+
+```{r echo=FALSE}
+data_ST_dowry$ID.space.time = seq(1,dim(data_ST_dowry)[1])
+
+formula_ST_intI_dowry = dowry_obs ~ f(ID.space, model="bym2", graph=carto_up_sf.adj,
+                            hyper=list(prec = list(
+                            prior = "pc.prec",
+                            param = c(0.5 / 0.31, 0.01)),
+                            phi = list(
+                            prior = "pc",
+                            param = c(0.5, 2 / 3)))) + 
+                      f(ID.time,model="rw1", hyper=list(prec = list(
+                            prior = "pc.prec",
+                            param = c(0.5 / 0.31, 0.01))))+
+                      f(ID.space.time,model="iid", hyper=list(prec = list(
+                            prior = "pc.prec",
+                            param = c(0.5 / 0.31, 0.01))))
+                    
+                            
+stIntI.BYM.model_dowry = inla(formula=formula_ST_intI_dowry, family="poisson", data=data_ST_dowry, E=E,
+                        control.compute=list(dic=TRUE, waic=TRUE))
+```
+
+```{r echo=FALSE}
+#Spatial Relative risks
+RR_stIntI.BYM_dowry = c()
+
+for(i in 1:70){
+  RR_stIntI.BYM_dowry[i] = inla.emarginal(function(x) exp(x), 
+        stIntI.BYM.model_dowry$marginals.random$ID.space[[i]])
+}
+
+#Posterior probabilities (for spatial RR)
+RR_stIntI.BYM_marg_dowry = stIntI.BYM.model_dowry$marginals.random$ID.space[1:70]
+PP_stIntI.BYM_dowry = lapply(RR_stIntI.BYM_marg_dowry, function(x) {1-inla.pmarginal(0,x)})
+
+#Temporal Relative risks and CI95
+RR_stIntI.RW_RR_dowry = c()
+RR_stIntI.RW_lo_dowry = c()
+RR_stIntI.RW_hi_dowry = c()
+
+for(i in 1:14){
+  #Posterior mean
+  RR_stIntI.RW_RR_dowry[i] = inla.emarginal(function(x) exp(x), 
+        stIntI.BYM.model_dowry$marginals.random$ID.time[[i]])
+  #2.5% quantile 
+  RR_stIntI.RW_lo_dowry[i] = inla.qmarginal(0.025,inla.tmarginal(function(x) exp(x), stIntI.BYM.model_dowry$marginals.random$ID.time[[i]]))
+  #97.5% quantile 
+  RR_stIntI.RW_hi_dowry[i] = inla.qmarginal(0.975, inla.tmarginal(function(x) exp(x), stIntI.BYM.model_dowry$marginals.random$ID.time[[i]]))
+}
+
+RR_stIntI.RW_dowry = data.frame(RR=RR_stIntI.RW_RR_dowry,low=RR_stIntI.RW_lo_dowry,high=RR_stIntI.RW_hi_dowry)
+```
+
+```{r echo=FALSE}
+Temp2 = ggplot(RR_stIntI.RW_dowry, aes(seq(2001,2014), RR)) + geom_line() + ggtitle("ST model Int I for Dowry Deaths") + geom_ribbon(aes(ymin=low,ymax=high), alpha=0.2) + labs(x="year")
+
+```
+
+```{r echo=FALSE, fig.cap="Fig. 5: ST model Int I for Rape Incidences and Dowry Deaths", fig.width=10, fig.height=4}
+Temp1|Temp2
+```
+
+
+Comparing the spatio-temporal model maps of the residual RRs and posterior probabilities for rape cases and dowry incidence with just the spatial models (fig. 6 and 7), the spatio-temporal model for rape incidence did not show difference in the spatial residuals, but the spatio-temperal model for dowry deaths showed a decrease in the spatial residuals.
+
+```{r eval=TRUE, echo=FALSE, include=TRUE}
+resRR_PP_stIntI_rape = data.frame(resRR=RR_stIntI.BYM_rape, 
+                       PP=unlist(PP_stIntI.BYM_rape),
+                      ID_area=data_agg_rape[,1])
+# breakpoints
+resRR_PP_stIntI_rape$resRRcat = cut(resRR_PP_stIntI_rape$resRR, breaks=c(min(resRR_PP_stIntI_rape$resRR), 
+                  0.4, 0.6, 0.8, 1, 1.2, 1.4, 1.6, 
+                  max(resRR_PP_stIntI_rape$resRR)),include.lowest = T)
+
+resRR_PP_stIntI_rape$PPcat = cut(resRR_PP_stIntI_rape$PP, c(0, 0.2, 0.8, 1.00), include.lowest = TRUE)
+
+map_RR_ST.IntI_rape = left_join(carto_up_sf, resRR_PP_stIntI_rape, by = c("ID_area" = "ID_area"))
+```
+
+```{r mapRRstIntI_rape, eval=TRUE, echo=FALSE, include=TRUE, fig.width=12, fig.height = 4, fig.cap="Fig. 6: Spatio-temporal model: Map of the residual RRs and posterior probabilities for rape cases", , fig.width=12, fig.height=10}
+p5 = ggplot() + geom_sf(data = map_RR_ST.IntI_rape) + aes(fill = resRRcat) +
+  theme_bw() + scale_fill_brewer(palette = "PuOr") + 
+  guides(fill=guide_legend(title="RR")) +  ggtitle("RR ST model Int I") +
+  theme(text = element_text(size=15), 
+        axis.text.x = element_blank(), 
+        axis.text.y = element_blank(), plot.title = element_text(size = 12, face = "bold")) 
+
+p6 = ggplot() + geom_sf(data = map_RR_ST.IntI_rape) + aes(fill = PPcat) +
+  theme_bw() +
+  scale_fill_viridis(
+    option = "plasma",
+    name = "PP ST model Int I",
+    discrete = T,
+    direction = -1,
+    guide = guide_legend(
+      title.position = 'top',
+      reverse = T
+    )) +  ggtitle("PP ST model Int I") + theme(text = element_text(size=15), 
+        axis.text.x = element_blank(), 
+        axis.text.y = element_blank(), plot.title = element_text(size = 12, face = "bold"))
+```
+
+```{r echo=FALSE, fig.cap="Fig. 6: Spatio-temporal model: Map of the residual RRs and posterior probabilities for rape cases", fig.width=10, fig.height=4}
+p5|p6
+```
+
+```{r eval=TRUE, echo=FALSE, include=TRUE}
+resRR_PP_stIntI_dowry = data.frame(resRR=RR_stIntI.BYM_dowry, 
+                       PP=unlist(PP_stIntI.BYM_dowry),
+                      ID_area=data_agg_dowry[,1])
+# breakpoints
+resRR_PP_stIntI_dowry$resRRcat = cut(resRR_PP_stIntI_dowry$resRR, breaks=c(min(resRR_PP_stIntI_dowry$resRR), 
+                  0.4, 0.6, 0.8, 1, 1.2, 1.4, 1.6, 
+                  max(resRR_PP_stIntI_dowry$resRR)),include.lowest = T)
+
+resRR_PP_stIntI_dowry$PPcat = cut(resRR_PP_stIntI_dowry$PP, c(0, 0.2, 0.8, 1.00), include.lowest = TRUE)
+
+map_RR_ST.IntI_dowry = left_join(carto_up_sf, resRR_PP_stIntI_dowry, by = c("ID_area" = "ID_area"))
+```
+
+```{r mapRRstIntI, eval=TRUE, echo=FALSE, include=TRUE, fig.cap="Fig. 7: Spatio-temporal model: Map of the residual RRs and posterior probabilities for dowry death cases", include=TRUE, fig.width=12, fig.height = 4,}
+p3 = ggplot() + geom_sf(data = map_RR_ST.IntI_dowry) + aes(fill = resRRcat) +
+  theme_bw() + scale_fill_brewer(palette = "PuOr") + 
+  guides(fill=guide_legend(title="RR")) +  ggtitle("RR ST model Int I") +
+  theme(text = element_text(size=15), 
+        axis.text.x = element_blank(), 
+        axis.text.y = element_blank(), plot.title = element_text(size = 12, face = "bold")) 
+
+p4 = ggplot() + geom_sf(data = map_RR_ST.IntI_dowry) + aes(fill = PPcat) +
+  theme_bw() +
+  scale_fill_viridis(
+    option = "plasma",
+    name = "PP ST model Int I",
+    discrete = T,
+    direction = -1,
+    guide = guide_legend(
+      title.position = 'top',
+      reverse = T
+    )) +  ggtitle("PP ST model Int I") + theme(text = element_text(size=15), 
+        axis.text.x = element_blank(), 
+        axis.text.y = element_blank(), plot.title = element_text(size = 12, face = "bold"))
+
+(p3|p4)
+```
+
+
+Figure 8 illustrates that from 2001 to 2003, the maps for both rape incidence and dowry death become lighter suggesting a decrease in risk. However, from 2003 to 2008 the maps gradually darkened, and the geographical pattern appears to stabilize from 2010 onwards. Most of the low-risk districts are located in the eastern part of Uttar Pradesh, with a few additional low-risk districts in the northwestern corner. High-risk districts are primarily found in the western-central region of the state. 
+
+```{r echo=FALSE, include=TRUE, fig.width=20, fig.height=10}
+data_ST_rape$intI = stIntI.BYM.model_rape$summary.random$ID.space.time$mean
+
+data_ST_rape$intI_cat = cut(data_ST_rape$intI,  breaks=c(-1,-0.05, 
+                  -0.01, 0.01, 0.05, 1),include.lowest = T)
+map1 = ggplot() +
+  geom_sf(data = data_ST_rape, aes(fill = intI_cat))+ theme_bw() +  scale_fill_brewer(palette = "PuOr") + 
+            guides(fill=guide_legend(title=NULL)) + 
+            theme(text = element_text(size=20), 
+                  axis.text.x = element_blank(), 
+                  axis.text.y = element_blank()) +
+facet_wrap(~ year, ncol = 3, labeller=labeller(ID.year=c("1"="2001","2"="2002","3"="2003","4"="2004","5"="2005", "6"="2006", "7"="2007", "8"="2008", "9"="2009", "10"="2010", "11"="2011", "12"="2012", "13"="2013", "14"="2014"))) +
+labs("")
+```
+
+
+```{r echo=FALSE, include=TRUE, fig.width=20, fig.height=10}
+data_ST_dowry$intI = stIntI.BYM.model_dowry$summary.random$ID.space.time$mean
+
+data_ST_dowry$intI_cat = cut(data_ST_dowry$intI,  breaks=c(-1,-0.05, 
+                  -0.01, 0.01, 0.05, 1),include.lowest = T)
+map2 = ggplot() +
+  geom_sf(data = data_ST_dowry, aes(fill = intI_cat))+ theme_bw() +  scale_fill_brewer(palette = "PuOr") + 
+            guides(fill=guide_legend(title=NULL)) + 
+            theme(text = element_text(size=20), 
+                  axis.text.x = element_blank(), 
+                  axis.text.y = element_blank()) +
+facet_wrap(~ year, ncol = 3, labeller=labeller(ID.year=c("1"="2001","2"="2002","3"="2003","4"="2004","5"="2005", "6"="2006", "7"="2007", "8"="2008", "9"="2009", "10"="2010", "11"="2011", "12"="2012", "13"="2013", "14"="2014"))) +
+labs("")
+```
+
+```{r echo=FALSE, fig.width=12, fig.height=6}
+# Combine the two plots 
+combined_plot_map <- map1 | map2
+
+# Add the title under the figure using plot_annotation()
+combined_plot_map + plot_annotation(
+  caption = "Fig. 8: Space-time interaction map for both rape incidences(left) and dowry deaths(right)",
+  theme = theme(plot.caption = element_text(hjust = 0.5))
+)
+```
+
+
+### Discussion
+The analysis of the prevalence of crimes against women in Uttar Pradesh, India, reveals the relevance of considering spatial and temporal variables. The results show that the highest rates are observed in the central and western part of the state. The temporal trend shows that the two crimes decreased from 2001 to 2003, then increased in the following years. The results suggests some spatial factors contribute to the state’s rape and dowry deaths, but it's important to note that the spatially structured component of the model does not account for all of that are contributing to the incidence of these crimes, which need to be further investigated. 
+
+There were some limitations in the study. Fewer than 40% of the women who experience domestic violence speak up. Fewer than 10% of those who did ask for help also went to the police [@WHOfacts]. Estimates of unreported rape cases in India vary greatly. According to the National Crime Records Bureau's 2006 report, approximately 71% of rape incidents go unreported [@indiajournal]. The dataset did not include women's age or age groups, making it difficult to identify age-specific patterns. Additionally, the dataset did not show any covariates, such as socioeconomic and demographic factors. Although the standardized mortality ratios might have been adjusted for covariates, we cannot be certain, which makes it difficult to draw definitive conclusions from the posterior probabilities. The analysis underscores the necessity for targeted policy and intervention efforts to mitigate violence against women in Uttar Pradesh. It emphasizes considering temporal trends when designing interventions. While the 2002 Protection from Domestic Violence Bill was a positive step, addressing the underlying social, economic, and cultural factors contributing to such violence remains crucial. 
+
+Violence against women is a pervasive issue with far-reaching consequences for individual women, their families, and society as a whole. The public health sector should take a multifaceted approach, which includes, self-defense classes to help women defend themselves physically but also fosters mental resilience and self-esteem. Community education to help change societal attitudes and promote a culture of respect and equality. Legal reforms to advocate for and supporting legal reforms can help to strengthen laws that protect women from violence.Providing therapy and counseling services to survivors of violence can help them heal from the emotional and psychological effects of their experiences.Offer comprehensive support services, such as shelters, hotlines, and financial assistance, can help women escape abusive situations and rebuild their lives. By implementing a combination of these strategies, the public health sector can contribute to reducing the prevalence of violence against women and improve the overall health and well-being of those affected by it.
+
+### Supplementary material
+```{r echo=FALSE, fig.width = 0.5, fig.height = 0.5}
+knitr::include_graphics("~/Desktop/table1.png")
+```
+
+### References 
+```{r echo=FALSE}
+knitcitations::bibliography("02343497.bib")
+
+```
+
+
+
+
+
+
+
